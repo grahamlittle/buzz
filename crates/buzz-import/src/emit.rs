@@ -9,8 +9,9 @@
 //!
 //! `emit_item` handles the root message and the consolidated history reply;
 //! `emit_attachments` uploads each attachment to Blossom (`PUT /upload`, BUD-02
-//! kind-24242 auth) and emits a threaded reply referencing the blob. Status
-//! seeding (a workflow trigger) remains a separate subsystem, not done here.
+//! kind-24242 auth) and emits a threaded reply referencing the blob;
+//! `seed_status` triggers an item's per-transition workflow (`KIND_WORKFLOW_TRIGGER`
+//! 46020) to set its state.
 
 use base64::{
     engine::general_purpose::{STANDARD as B64, URL_SAFE_NO_PAD},
@@ -129,6 +130,26 @@ impl Emitter {
             n += 1;
         }
         Ok(n)
+    }
+
+    /// Seed an item's status by triggering its per-transition workflow.
+    ///
+    /// Emits a `KIND_WORKFLOW_TRIGGER` (46020) event: `d` tag = workflow UUID,
+    /// content = `{"item": <item-id>}`. Gated transitions are NOT auto-approved.
+    pub async fn seed_status(&self, item_id: &str, workflow_id: &str) -> Result<()> {
+        uuid::Uuid::parse_str(workflow_id).map_err(|e| {
+            ImportError::Input(format!("workflow id '{workflow_id}' not a UUID: {e}"))
+        })?;
+        let content = serde_json::json!({ "item": item_id }).to_string();
+        let event = EventBuilder::new(
+            Kind::Custom(buzz_core::kind::KIND_WORKFLOW_TRIGGER as u16),
+            content,
+        )
+        .tags(parse_tags(&[vec!["d".into(), workflow_id.into()]])?)
+        .sign_with_keys(&self.keys)
+        .map_err(|e| ImportError::Other(format!("workflow-trigger signing failed: {e}")))?;
+        self.emit_event(&event).await?;
+        Ok(())
     }
 
     /// Upload raw bytes to the Blossom `PUT /upload` endpoint; returns the blob URL.

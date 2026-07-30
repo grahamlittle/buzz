@@ -105,6 +105,18 @@ async fn run() -> buzz_import::error::Result<()> {
                     .await?
             };
 
+            if let Some(state) = &payload.seed_state {
+                match config.workflow_ids.get(state) {
+                    Some(workflow_id) => {
+                        emitter.seed_status(&outcome.item_id, workflow_id).await?;
+                    }
+                    None => eprintln!(
+                        "no workflow id for state '{state}'; skipping status seed for {}",
+                        issue.key
+                    ),
+                }
+            }
+
             ledger.append(&buzz_import::ledger::Entry {
                 jira: issue.key.clone(),
                 buzz_item: Some(outcome.item_id),
