@@ -69,7 +69,7 @@ async fn run() -> buzz_import::error::Result<()> {
     let status = StatusMap::load(&config.status_map)?;
     let ledger = Ledger::open(&config.ledger)?;
     let emitter = Emitter::new(&config)?;
-    let jira = JiraClient::new(jira_base_url()?);
+    let jira = JiraClient::new(jira_base_url()?)?;
 
     for product in &config.products {
         let issues = jira
