@@ -129,6 +129,29 @@ impl JiraClient {
         Ok(issues)
     }
 
+    /// Download an attachment's raw bytes (authenticated).
+    pub async fn download_attachment(&self, content_url: &str) -> Result<Vec<u8>> {
+        let resp = self
+            .http
+            .get(content_url)
+            .header("Authorization", &self.auth)
+            .send()
+            .await
+            .map_err(|e| ImportError::Network(e.to_string()))?;
+        let status = resp.status();
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(ImportError::Network(format!(
+                "GET attachment {status}: {text}"
+            )));
+        }
+        let bytes = resp
+            .bytes()
+            .await
+            .map_err(|e| ImportError::Network(e.to_string()))?;
+        Ok(bytes.to_vec())
+    }
+
     /// Fetch just the keys of the open issue set (no comments), for verification.
     pub async fn fetch_open_keys(
         &self,

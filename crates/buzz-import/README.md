@@ -12,7 +12,7 @@ jira (extract) -> transform -> emit (load) -> verify
 
 - **jira** — pulls the open issue set (selection JQL), plus comments and attachments. Current status only.
 - **transform** — deterministic Jira issue -> Buzz event payloads. Tags: `jira:<KEY>`, `type:`, `epic:`, `region:`, `orig-created:`, `label:`, plus a `p` assignee tag and the NIP-29 `h` channel tag.
-- **emit** — builds events with `buzz-sdk`, signs with the single `buzz-import` key, emits via the HTTP bridge (`POST /events`) or `buzz-ws-client`. Dedup via a relay REQ (`{ "kinds":[...], "#t":["jira:<KEY>"] }` — `kinds` is mandatory or the query 403s).
+- **emit** — signs with the single `buzz-import` key, emits the root + history reply via the HTTP bridge (`POST /events`). Dedup via a relay REQ (`{ "kinds":[...], "#t":["jira:<KEY>"] }` — `kinds` is mandatory or the query 403s). Attachments are uploaded to Blossom (`PUT /upload`, BUD-02 kind-24242 auth) and referenced from a threaded reply.
 - **verify** — reconciles Jira selection against the ledger and the relay.
 
 Idempotency + resume via an append-only `import-ledger.jsonl` (dedup on the `jira:<KEY>` tag).
@@ -31,8 +31,8 @@ buzz-import --config buzz-import.json run
 buzz-import --config buzz-import.json verify
 ```
 
-`JIRA_BASE_URL` and `BUZZ_PRIVATE_KEY` (the import key) are read from the environment.
+`JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN` (Jira Basic auth) and `BUZZ_PRIVATE_KEY` (the import key) are read from the environment.
 
 ## Status
 
-Scaffold. Module structure, config, error/exit-code contract, and the ledger are in place; the `jira`, `emit`, and `verify` stages are stubbed (`not yet implemented`). `#![allow(dead_code)]` is set at the crate root and comes out as the stages are filled.
+The full pipeline is implemented: `jira` (extract), `transform`, `emit` (root + history reply + Blossom attachment upload + dedup), and `verify`. Status seeding (a workflow trigger) is the remaining subsystem and is not yet wired. `#![allow(dead_code)]` is still set at the crate root and comes out once that lands.
