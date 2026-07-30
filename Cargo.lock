@@ -991,6 +991,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "buzz-import"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "buzz-core",
+ "buzz-sdk",
+ "buzz-ws-client",
+ "chrono",
+ "clap",
+ "hex",
+ "nostr",
+ "rand 0.10.1",
+ "reqwest 0.13.4",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "buzz-media"
 version = "0.1.0"
 dependencies = [
