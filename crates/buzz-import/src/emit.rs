@@ -7,11 +7,15 @@
 //! header. Dedup queries MUST include `kinds` — an open-ended REQ hits the
 //! relay p-gate and returns 403.
 //!
-//! Attachment upload (Blossom) and status seeding (a workflow trigger) are
-//! separate subsystems and are not performed here; `emit_item` handles the root
-//! message and the consolidated history reply.
+//! `emit_item` handles the root message and the consolidated history reply;
+//! `emit_attachments` uploads each attachment to Blossom (`PUT /upload`, BUD-02
+//! kind-24242 auth) and emits a threaded reply referencing the blob. Status
+//! seeding (a workflow trigger) remains a separate subsystem, not done here.
 
-use base64::{engine::general_purpose::STANDARD as B64, Engine};
+use base64::{
+    engine::general_purpose::{STANDARD as B64, URL_SAFE_NO_PAD},
+    Engine,
+};
 use nostr::{EventBuilder, JsonUtil, Keys, Kind, Tag};
 use sha2::{Digest, Sha256};
 
@@ -21,6 +25,7 @@ use crate::transform::{ItemPayload, Tag as RawTag};
 
 const MESSAGE_KIND: u16 = 9;
 const NIP98_KIND: u16 = 27235;
+const BLOSSOM_KIND: u16 = 24242;
 
 /// Emits events and performs dedup reads against a Buzz relay over the HTTP bridge.
 pub struct Emitter {
@@ -100,6 +105,98 @@ impl Emitter {
             attachments: payload.attachments.len(),
             seeded_state: payload.seed_state.clone(),
         })
+    }
+
+    /// Upload each attachment to Blossom and emit a threaded reply on the item
+    /// referencing the returned blob URL. Returns the number uploaded.
+    pub async fn emit_attachments(
+        &self,
+        item_id: &str,
+        root_tags: &[RawTag],
+        blobs: &[(String, String, Vec<u8>)],
+    ) -> Result<usize> {
+        let mut n = 0;
+        for (filename, mime, bytes) in blobs {
+            let url = self.upload_blob(bytes.clone(), mime).await?;
+            let mut tags = self.reply_tags(root_tags, item_id)?;
+            tags.push(vec![
+                "imeta".into(),
+                format!("url {url}"),
+                format!("m {mime}"),
+            ]);
+            let event = self.build_event(&format!("attachment: {filename}"), &tags)?;
+            self.emit_event(&event).await?;
+            n += 1;
+        }
+        Ok(n)
+    }
+
+    /// Upload raw bytes to the Blossom `PUT /upload` endpoint; returns the blob URL.
+    async fn upload_blob(&self, bytes: Vec<u8>, mime: &str) -> Result<String> {
+        let sha256 = hex::encode(Sha256::digest(&bytes));
+        if self.dry_run {
+            println!(
+                "[dry-run] would upload blob {sha256} ({mime}, {} bytes)",
+                bytes.len()
+            );
+            return Ok(format!("{}/{sha256}", self.relay_url));
+        }
+        let auth = self.blossom_auth(&sha256, mime)?;
+        let url = format!("{}/upload", self.relay_url);
+        let resp = self
+            .http
+            .put(&url)
+            .header("Authorization", auth)
+            .header("Content-Type", mime)
+            .header("X-SHA-256", &sha256)
+            .body(bytes)
+            .send()
+            .await
+            .map_err(|e| ImportError::Network(e.to_string()))?;
+        let status = resp.status();
+        let text = resp
+            .text()
+            .await
+            .map_err(|e| ImportError::Network(e.to_string()))?;
+        if !status.is_success() {
+            return Err(ImportError::Network(format!(
+                "PUT /upload {status}: {text}"
+            )));
+        }
+        let v: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|e| ImportError::Other(format!("parse /upload response: {e}")))?;
+        v.get("url")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| ImportError::Other("/upload response missing url".into()))
+    }
+
+    /// Build a Blossom (BUD-02) `Authorization: Nostr <base64url>` header.
+    fn blossom_auth(&self, sha256: &str, mime: &str) -> Result<String> {
+        let now = nostr::Timestamp::now().as_secs();
+        let expiry = if mime.starts_with("video/") {
+            3600
+        } else {
+            600
+        };
+        let exp = (now + expiry).to_string();
+        let mut tags = vec![
+            parse_tag(&["t", "upload"])?,
+            parse_tag(&["x", sha256])?,
+            parse_tag(&["expiration", &exp])?,
+        ];
+        let authority = buzz_core::tenant::relay_url_authority(&self.relay_url);
+        if !authority.is_empty() {
+            tags.push(parse_tag(&["server", &authority])?);
+        }
+        let event = EventBuilder::new(Kind::Custom(BLOSSOM_KIND), "Upload file")
+            .tags(tags)
+            .sign_with_keys(&self.keys)
+            .map_err(|e| ImportError::Auth(format!("blossom auth signing failed: {e}")))?;
+        Ok(format!(
+            "Nostr {}",
+            URL_SAFE_NO_PAD.encode(event.as_json().as_bytes())
+        ))
     }
 
     /// Build and sign a `Kind::Custom(9)` event from raw tags.

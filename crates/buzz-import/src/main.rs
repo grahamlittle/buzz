@@ -91,13 +91,27 @@ async fn run() -> buzz_import::error::Result<()> {
             }
             let payload = build_item(issue, &product.channel, &identity, &status);
             let outcome = emitter.emit_item(&payload).await?;
+
+            let attachments = if config.dry_run {
+                outcome.attachments
+            } else {
+                let mut blobs = Vec::new();
+                for a in &payload.attachments {
+                    let bytes = jira.download_attachment(&a.source_url).await?;
+                    blobs.push((a.filename.clone(), a.mime_type.clone(), bytes));
+                }
+                emitter
+                    .emit_attachments(&outcome.item_id, &payload.root_tags, &blobs)
+                    .await?
+            };
+
             ledger.append(&buzz_import::ledger::Entry {
                 jira: issue.key.clone(),
                 buzz_item: Some(outcome.item_id),
                 stage: buzz_import::ledger::Stage::Done,
                 state: outcome.seeded_state,
                 comments: outcome.comments,
-                attachments: outcome.attachments,
+                attachments,
             })?;
         }
     }
