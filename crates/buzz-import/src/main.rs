@@ -40,6 +40,7 @@ enum Command {
 
 #[tokio::main]
 async fn main() -> ProcExit {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     match run().await {
         Ok(()) => ProcExit::SUCCESS,
         Err(e) => {
@@ -67,7 +68,7 @@ async fn run() -> buzz_import::error::Result<()> {
     let identity = IdentityMap::load(&config.identity_map)?;
     let status = StatusMap::load(&config.status_map)?;
     let ledger = Ledger::open(&config.ledger)?;
-    let emitter = Emitter::new(&config);
+    let emitter = Emitter::new(&config)?;
     let jira = JiraClient::new(jira_base_url()?);
 
     for product in &config.products {
