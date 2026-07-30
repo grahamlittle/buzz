@@ -1,0 +1,38 @@
+[package]
+name = "buzz-import"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "One-time Jira backlog importer for Buzz (open items, clean cutover)"
+
+[[bin]]
+name = "buzz-import"
+path = "src/main.rs"
+
+[lib]
+name = "buzz_import"
+path = "src/lib.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive", "env"] }
+reqwest = { workspace = true, features = ["json"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+nostr = { workspace = true }
+chrono = { workspace = true }
+url = { workspace = true }
+rand = { workspace = true }
+
+buzz-sdk = { workspace = true }
+buzz-core = { workspace = true }
+buzz-ws-client = { workspace = true }
+
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+
+[dev-dependencies]
+tempfile = "3"
