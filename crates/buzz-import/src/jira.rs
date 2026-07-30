@@ -129,6 +129,45 @@ impl JiraClient {
         Ok(issues)
     }
 
+    /// Fetch just the keys of the open issue set (no comments), for verification.
+    pub async fn fetch_open_keys(
+        &self,
+        project_key: &str,
+        selection_jql: &str,
+    ) -> Result<Vec<String>> {
+        let jql = format!("project = \"{project_key}\" AND {selection_jql}");
+        let mut keys = Vec::new();
+        let mut next_page: Option<String> = None;
+
+        loop {
+            let mut body = serde_json::json!({
+                "jql": jql,
+                "maxResults": 100,
+                "fields": ["key"],
+            });
+            if let Some(token) = &next_page {
+                body["nextPageToken"] = serde_json::json!(token);
+            }
+
+            let page = self.post_json("/rest/api/3/search/jql", &body).await?;
+            if let Some(arr) = page.get("issues").and_then(|v| v.as_array()) {
+                for raw in arr {
+                    if let Some(k) = str_at(raw, &["key"]) {
+                        keys.push(k);
+                    }
+                }
+            }
+            match page.get("nextPageToken").and_then(|v| v.as_str()) {
+                Some(token) if page.get("isLast").and_then(|v| v.as_bool()) != Some(true) => {
+                    next_page = Some(token.to_string());
+                }
+                _ => break,
+            }
+        }
+
+        Ok(keys)
+    }
+
     /// Fetch all comments for an issue, paginated.
     async fn fetch_comments(&self, issue_key: &str) -> Result<Vec<JiraComment>> {
         let mut out = Vec::new();

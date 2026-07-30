@@ -58,21 +58,24 @@ impl Emitter {
         })
     }
 
-    /// Return the existing Buzz item id for a Jira key, if already imported.
+    /// Return the existing Buzz item event for a Jira key, if already imported.
     ///
     /// Dedup filter is `{ "kinds":[9], "#t":["jira:<KEY>"], "limit":1 }`.
-    pub async fn find_existing(&self, jira_key: &str) -> Result<Option<String>> {
+    pub async fn get_item(&self, jira_key: &str) -> Result<Option<serde_json::Value>> {
         let filter = serde_json::json!([{
             "kinds": [MESSAGE_KIND],
             "#t": [format!("jira:{jira_key}")],
             "limit": 1,
         }]);
-        let events = self.query(&filter).await?;
-        Ok(events
-            .first()
-            .and_then(|e| e.get("id"))
-            .and_then(|id| id.as_str())
-            .map(str::to_string))
+        Ok(self.query(&filter).await?.into_iter().next())
+    }
+
+    /// Return the existing Buzz item id for a Jira key, if already imported.
+    pub async fn find_existing(&self, jira_key: &str) -> Result<Option<String>> {
+        Ok(self
+            .get_item(jira_key)
+            .await?
+            .and_then(|e| e.get("id").and_then(|id| id.as_str()).map(str::to_string)))
     }
 
     /// Sign and emit all payloads for one item, in dependency order:

@@ -59,8 +59,18 @@ async fn run() -> buzz_import::error::Result<()> {
         Command::Run => config.dry_run = false,
         Command::Verify => {
             let ledger = Ledger::open(&config.ledger)?;
-            let report = verify::run(&ledger, 0).await?;
+            let jira = JiraClient::new(jira_base_url()?)?;
+            let emitter = Emitter::new(&config)?;
+            let report = verify::run(&config, &jira, &emitter, &ledger).await?;
             println!("{report:?}");
+            if !report.ok() {
+                return Err(ImportError::Other(format!(
+                    "verification failed: {} missing, {} tag-mismatch, {} ledger-failed",
+                    report.missing.len(),
+                    report.tag_mismatches.len(),
+                    report.ledger_failed
+                )));
+            }
             return Ok(());
         }
     }
