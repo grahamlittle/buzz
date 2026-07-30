@@ -35,4 +35,4 @@ buzz-import --config buzz-import.json verify
 
 ## Status
 
-The full pipeline is implemented: `jira` (extract), `transform`, `emit` (root + history reply + Blossom attachment upload + dedup), and `verify`. Status seeding (a workflow trigger) is the remaining subsystem and is not yet wired. `#![allow(dead_code)]` is still set at the crate root and comes out once that lands.
+The full pipeline is implemented: `jira` (extract), `transform`, `emit` (root + history reply + Blossom attachment upload + status seed + dedup), and `verify`. Status seeding triggers each item's per-transition workflow (`KIND_WORKFLOW_TRIGGER` 46020) using a `workflow_ids` state→UUID map in the config; gated transitions are not auto-approved. `#![allow(dead_code)]` remains at the crate root for the small number of not-yet-called helpers (e.g. `ledger::load`, `find_existing`).

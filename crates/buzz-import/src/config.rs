@@ -1,6 +1,7 @@
 //! Importer configuration.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// Top-level importer config, loaded from a JSON/YAML file.
@@ -41,6 +42,11 @@ pub struct Config {
     /// Append-only ledger path (idempotency + resume).
     #[serde(default = "default_ledger")]
     pub ledger: PathBuf,
+
+    /// Workflow-state name -> Buzz workflow UUID, for status seeding. A state
+    /// with no mapping is skipped (workflows are UUID-keyed, not name-keyed).
+    #[serde(default)]
+    pub workflow_ids: HashMap<String, String>,
 }
 
 /// One product's Jira project -> Buzz channel mapping.
