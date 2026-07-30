@@ -46,6 +46,14 @@ pub struct EmitOutcome {
     pub seeded_state: Option<String>,
 }
 
+/// A stored Blossom blob, as returned by `PUT /upload`.
+struct BlobRef {
+    url: String,
+    mime: String,
+    sha256: String,
+    size: u64,
+}
+
 impl Emitter {
     /// Build an emitter from config. The import key is read from `BUZZ_PRIVATE_KEY`.
     pub fn new(config: &Config) -> Result<Self> {
@@ -118,12 +126,14 @@ impl Emitter {
     ) -> Result<usize> {
         let mut n = 0;
         for (filename, mime, bytes) in blobs {
-            let url = self.upload_blob(bytes.clone(), mime).await?;
+            let blob = self.upload_blob(bytes.clone(), mime).await?;
             let mut tags = self.reply_tags(root_tags, item_id)?;
             tags.push(vec![
                 "imeta".into(),
-                format!("url {url}"),
-                format!("m {mime}"),
+                format!("url {}", blob.url),
+                format!("m {}", blob.mime),
+                format!("x {}", blob.sha256),
+                format!("size {}", blob.size),
             ]);
             let event = self.build_event(&format!("attachment: {filename}"), &tags)?;
             self.emit_event(&event).await?;
@@ -152,15 +162,20 @@ impl Emitter {
         Ok(())
     }
 
-    /// Upload raw bytes to the Blossom `PUT /upload` endpoint; returns the blob URL.
-    async fn upload_blob(&self, bytes: Vec<u8>, mime: &str) -> Result<String> {
+    /// Upload raw bytes to the Blossom `PUT /upload` endpoint; returns the stored
+    /// blob descriptor (url + relay-stored MIME + sha256 + size). The `imeta`
+    /// tag MUST use the stored MIME/hash/size — the relay rejects a mismatch.
+    async fn upload_blob(&self, bytes: Vec<u8>, mime: &str) -> Result<BlobRef> {
         let sha256 = hex::encode(Sha256::digest(&bytes));
+        let size = bytes.len() as u64;
         if self.dry_run {
-            println!(
-                "[dry-run] would upload blob {sha256} ({mime}, {} bytes)",
-                bytes.len()
-            );
-            return Ok(format!("{}/{sha256}", self.relay_url));
+            println!("[dry-run] would upload blob {sha256} ({mime}, {size} bytes)");
+            return Ok(BlobRef {
+                url: format!("{}/{sha256}", self.relay_url),
+                mime: mime.to_string(),
+                sha256,
+                size,
+            });
         }
         let auth = self.blossom_auth(&sha256, mime)?;
         let url = format!("{}/upload", self.relay_url);
@@ -186,10 +201,25 @@ impl Emitter {
         }
         let v: serde_json::Value = serde_json::from_str(&text)
             .map_err(|e| ImportError::Other(format!("parse /upload response: {e}")))?;
-        v.get("url")
+        let blob_url = v
+            .get("url")
             .and_then(serde_json::Value::as_str)
-            .map(str::to_string)
-            .ok_or_else(|| ImportError::Other("/upload response missing url".into()))
+            .ok_or_else(|| ImportError::Other("/upload response missing url".into()))?
+            .to_string();
+        Ok(BlobRef {
+            mime: v
+                .get("type")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or(mime)
+                .to_string(),
+            sha256: v
+                .get("sha256")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or(&sha256)
+                .to_string(),
+            size: v.get("size").and_then(serde_json::Value::as_u64).unwrap_or(size),
+            url: blob_url,
+        })
     }
 
     /// Build a Blossom (BUD-02) `Authorization: Nostr <base64url>` header.
